@@ -1,6 +1,7 @@
 # libraries
 library(tibble)
 library(dplyr)
+library(tidyr)
 
 generate_parameters <- function(retail=1, office=9, residential=3, scenario=NULL){
   # check
@@ -60,25 +61,25 @@ generate_data <- function(n=50000){
       prob=c(.9,.09,.009,.001)
     ),
     leaseup_office=sample(
-      0:3, 
+      1:4, 
       n, 
       replace=TRUE,
       prob=c(0.05,0.8,0.2,0.05)
     ),
     leaseup_residential=sample(
-      0:2, 
+      2:3, 
       n, 
       replace=TRUE,
-      prob=c(0.6,0.3,0.01)
+      prob=c(0.8,0.2)
     ),
     leaseup_retail=sample(
-      0:4,
+      1:4,
       n,
       replace=TRUE,
-      prob=c(0.13,0.7,0.14,0.01,0.01)
+      prob=c(0.15,0.7,0.10,0.05)
     ),
-    vacancy_retail = 0.15 + rbeta(n,0.5,8),
-    vacancy_office = 0.15 + rbeta(n,1.5,8),
+    vacancy_retail = 0.13 + rbeta(n,0.5,8),
+    vacancy_office = 0.13 + rbeta(n,1.5,8),
     vacancy_residential = rnorm(n,0.07,0.03)
   )
   return(dat)
@@ -95,36 +96,89 @@ calculate_tax <- function(value, params) {
 }
 
 # this will help with lease up, assuming linear
-calculate_vacancy <- function(year, start, fillout, stable) {
+calculate_vacancy <- function(year, construction, leaseup, stable) {
+  # we finish *on* leaseup year
+  step <- (1 - stable) / (leaseup)
   out <- case_when(
-    year < start ~ 1.00,
-    year > start + fillout ~ stable,
-    TRUE ~ NA_real_
+    year <= construction ~ 1.00, # start vacant
+    year >= construction + leaseup ~ stable, # end stable
+    TRUE ~ 1 - (step * (year - construction)) # step down equal increments
   )
   return(out)
 }
 
-create_egi_table = function(instance, params) {
+# 
+create_noi_table = function(instance, params) {
   
   income_table <- tibble(
+    # year range
     year=1:10,
-    escalator=(params$expense_escalator + 1) ^ (year - 1),
+    
+    # columns to drop
+    .escalator=(params$expense_escalator + 1) ^ (year - 1),
     .construction_complete = ifelse(year<=instance[['construction_term']],TRUE,FALSE),
-    retail_pgi = params$sf_retail * params$lease_retail_sf * escalator,
-    retail_vacancy = 1
+    
+    # retail
+    retail_pgi = params$sf_retail * params$lease_retail_sf * .escalator,
+    retail_vacancy = calculate_vacancy(
+      year,
+      instance[['construction_term']],
+      instance[['leaseup_retail']],
+      instance[['vacancy_retail']]
+    ),
+    retail_egi = retail_pgi * (1 - retail_vacancy),
+    
+    # office
+    office_pgi = params$sf_office * params$lease_office_sf * .escalator,
+    office_vacancy = calculate_vacancy(
+      year,
+      instance[['construction_term']],
+      instance[['leaseup_office']],
+      instance[['vacancy_office']]
+    ),
+    office_egi = office_pgi * (1 - office_vacancy),
+    
+    # residential
+    # THIS IS ALL WRONG LOL it needs vary by unit type :)
+    residential_pgi = 100000,
+      # params$sf_office * params$lease_office_sf * .escalator,
+    residential_vacancy = calculate_vacancy(
+      year,
+      instance[['construction_term']],
+      instance[['leaseup_residential']],
+      instance[['vacancy_residential']]
+    ),
+    residential_egi = residential_pgi * (1 - residential_vacancy)
+    
     ) %>%
     select(-starts_with('.') # remove internal columns
     
   )
   
   # supply table
+  # change this when finalized with egi, noe, and noi
   return(income_table)
   
 }
 
-asdf <- generate_parameters()
-jkl <- generate_data(n=1)
-asdf
-jkl
-apply(jkl,1,create_egi_table,params=asdf)
-calculate_vacancy(0,1,1,.4)
+calc_all <- function(data, params) {
+  # add noi tables
+  data[['noi_tbl']] <- apply(
+    data,
+    1,
+    create_noi_table,
+    params=params
+  )
+  
+  # etc
+  
+  # return data
+  # change this to only be indicators of note if computationally expensive
+  return(data)
+}
+
+# testing
+test_params <- generate_parameters()
+test_data <- generate_data(n=10)
+out <- calc_all(test_data, test_params)
+out
