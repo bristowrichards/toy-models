@@ -2,6 +2,7 @@
 library(tibble)
 library(dplyr)
 library(tidyr)
+library(tidyquant)
 
 generate_parameters <- function(retail=1, office=9, residential=3, scenario=NULL){
   # check
@@ -104,7 +105,8 @@ calculate_tax <- function(value, params) {
 }
 
 # this will help with lease up, assuming linear
-calculate_vacancy <- function(year, construction, leaseup, stable) {
+calculate_vacancy <- function(construction, leaseup, stable) {
+  year <- 1:10
   # we finish *on* leaseup year
   step <- (1 - stable) / (leaseup)
   out <- case_when(
@@ -115,7 +117,7 @@ calculate_vacancy <- function(year, construction, leaseup, stable) {
   return(out)
 }
 
-# 
+# delete
 create_noi_table = function(instance, params) {
   
   income_table <- tibble(
@@ -168,13 +170,84 @@ create_noi_table = function(instance, params) {
   return(income_table)
   
 }
+# end delete
+
+calculate_noi <- function(instance, params){
+  # general
+  year <- 1:10
+  escalator <- (params$expense_escalator + 1) ^ (year - 1)
+  construction_complete <- ifelse(year<=instance[['construction_term']],TRUE,FALSE)
+  
+  ## income
+  # retail
+  retail_pgi <- params$sf_retail * params$lease_retail_sf * escalator
+  retail_vacancy <- calculate_vacancy(
+    instance[['construction_term']],
+    instance[['leaseup_retail']],
+    instance[['vacancy_retail']]
+  )
+  retail_egi <- retail_pgi * (1 - retail_vacancy)
+
+  # office
+  office_pgi = params$sf_office * params$lease_office_sf * escalator
+  office_vacancy = calculate_vacancy(
+    instance[['construction_term']],
+    instance[['leaseup_office']],
+    instance[['vacancy_office']]
+  )
+  office_egi = office_pgi * (1 - office_vacancy)
+
+  # residential
+  # THIS IS ALL WRONG LOL it needs vary by unit type :)
+  residential_pgi = 100000
+  # params$sf_office * params$lease_office_sf * .escalator,
+  residential_vacancy = calculate_vacancy(
+    instance[['construction_term']],
+    instance[['leaseup_residential']],
+    instance[['vacancy_residential']]
+  )
+  residential_egi = residential_pgi * (1 - residential_vacancy)
+  
+  # finish noi
+  egi <- retail_egi + office_egi + residential_egi
+
+  ## expenses
+  ## find this out later!
+  aoe <- seq(1e5,5e5,length=10)
+  
+  noi <- egi - aoe
+  
+  return(noi)
+}
+
+calculate_debt <- function(stable_noi, params){
+  # fill this out plz
+  # max supportable debt both methods
+  # annual debt service
+  # how much left at end as negative cash flow compared to sale
+}
+
+calculate_development_cost <- function(params){
+  # fill this out
+}
+
+calculate_cash_flow <- function(){
+  # fill this out
+}
 
 calc_all <- function(data, params) {
-  # add noi tables
-  data[['noi_tbl']] <- apply(
+  # create noi vectors
+  noi_matrix <- apply(
     data,
     1,
-    create_noi_table,
+    calculate_noi,
+    params=params
+  )
+  
+  cash_flow_matrix <- apply(
+    noi_matrix,
+    1,
+    calculate_cash_flow,
     params=params
   )
   
@@ -190,5 +263,7 @@ test_params <- generate_parameters()
 test_data <- generate_data(n=10)
 out <- calc_all(test_data, test_params)
 out
-summary(test_data)
-(0.10 + rbeta(50000,1.2,10)) %>% qplot()
+# summary(test_data)
+# (0.10 + rbeta(50000,1.2,10)) %>% qplot()
+# calculate_vacancy(2,3,.15)
+calculate_noi(test_data[1,],test_params)
