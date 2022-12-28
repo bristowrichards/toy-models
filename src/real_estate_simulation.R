@@ -78,10 +78,18 @@ generate_data <- function(n=50000){
       replace=TRUE,
       prob=c(0.15,0.7,0.10,0.05)
     ),
-    vacancy_retail = 0.13 + rbeta(n,0.5,8),
-    vacancy_office = 0.13 + rbeta(n,1.5,8),
+    vacancy_retail = 0.15 + rbeta(n,2.0,10),
+    vacancy_office = 0.15 + rbeta(n,1.2,10),
     vacancy_residential = rnorm(n,0.07,0.03)
-  )
+  ) %>% 
+    mutate(
+      vacancy_residential = ifelse(
+        vacancy_residential<0,
+        0,
+        vacancy_residential
+      )
+    )
+    
   return(dat)
 }
 
@@ -182,3 +190,5 @@ test_params <- generate_parameters()
 test_data <- generate_data(n=10)
 out <- calc_all(test_data, test_params)
 out
+summary(test_data)
+(0.10 + rbeta(50000,1.2,10)) %>% qplot()
